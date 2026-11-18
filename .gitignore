@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+downloads/*
+!downloads/.gitkeep
+vendor/ffmpeg/*.exe
