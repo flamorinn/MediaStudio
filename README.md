@@ -47,7 +47,7 @@ MediaStudio/
       main_window.py
   assets/                    Logo, uygulama ikonu (.ico), lisanslar
   downloads/                 Kaynak koddan çalışırken varsayılan kayıt klasörü
-  tests/                     pytest + pytest-qt (169 test; internete çıkmaz)
+  tests/                     pytest + pytest-qt (203 test; internete çıkmaz)
   tools/generate_icon.py     Logodan çok boyutlu .ico üretir
   vendor/ffmpeg/             (isteğe bağlı) EXE'ye gömülecek ffmpeg.exe / ffprobe.exe
 ```
@@ -82,6 +82,25 @@ Varsayılan kayıt klasörü kaynak koddan çalışırken `downloads/`, EXE'de `
   - `ytdlp_support.base_options` bu seçeneklerden biri eklenirse çalışmayı durdurur.
 - **Testler:** `tests/media_server.py`, FFmpeg ile sentetik test içerikleri üretip 127.0.0.1'den sunar:
   doğrudan MP4, ayrı akışlı DASH, yavaş akan dosya ve 404. Testler internete çıkmaz.
+
+## Zaman aralığı indirme ve hız (1.1)
+
+- **Yalnızca bir kısmı indirme:** analizden sonra "İndirilecek kısım" bölümünden **Tümü** veya
+  **Zaman aralığı** seçilir. Aralık, kaydırıcıyla ya da başlangıç/bitiş alanlarıyla belirlenir.
+  Alanlar Türkçe yazımı anlar: `5.37` = 5 dk 37 sn, `1.05.37` = 1 sa 5 dk 37 sn; `5:37` ve
+  `00:05:37` da geçerlidir. Videonun tamamı indirilmez; yalnızca o kısım iner ve kesim tam seçilen
+  kareden başlar. Hem Video İndir (MP4) hem Ses İndir (MP3) sayfasında çalışır.
+- **Hız (ölçüm, 10,5 dk video, 71 sn aralık, 1080p):** aralık, kaynak sunuyorsa küçük HLS
+  parçalarından çekilir: 30 sn (tek bağlantılı akışla 47 sn). Süre aralığın uzunluğuna bağlıdır,
+  videonun uzunluğuna değil.
+- **Daha hızlı analiz:** bağlantı yapıştırılınca ya da yazılınca analiz kendiliğinden başlar ve
+  geçen saniye gösterilir. yt-dlp uygulama açılırken arka planda hazırlanır. Analiz sonucu indirmede
+  yeniden kullanılır; bağlantı ikinci kez çekilmez (30 dakikadan eskiyse tazelenir).
+- **İlerleme ve iptal:** aralık indirmede yt-dlp ilerleme bildirmez. İlerleme, yazılan dosyanın
+  büyümesi ve akışın ortalama bit hızından hesaplanır. İptal, ilgili FFmpeg sürecini hemen durdurur
+  ve yarım dosyaları siler.
+- **Sınırlama:** aralık seçimi, süresini bildiren kaynaklarda açıktır (YouTube gibi). Süre bilgisi
+  olmayan doğrudan dosya bağlantılarında yalnızca tamamı indirilebilir.
 
 ## Dönüştürücü (Aşama 3)
 

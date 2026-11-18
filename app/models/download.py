@@ -69,6 +69,12 @@ class DownloadTask:
     quality: str = "best"          # video: best | 2160 | 1440 | 1080 | 720 | 480
     audio_bitrate: int = 192       # ses: MP3 kbps
     output_dir: str = ""
+    # Zaman aralığı (saniye). İkisi de None ise videonun tamamı indirilir.
+    section_start: float | None = None
+    section_end: float | None = None
+    # Analiz sırasında çekilen yt-dlp bilgisi: indirmede bağlantı yeniden analiz edilmez
+    prefetched_info: dict | None = field(default=None, repr=False, compare=False)
+    prefetched_at: float = 0.0
     id: int = field(default_factory=lambda: next(_ids))
 
     @property
@@ -78,3 +84,11 @@ class DownloadTask:
     @property
     def is_audio(self) -> bool:
         return self.kind is OperationKind.AUDIO_DOWNLOAD
+
+    @property
+    def has_section(self) -> bool:
+        return self.section_start is not None and self.section_end is not None
+
+    @property
+    def section_length(self) -> float:
+        return (self.section_end - self.section_start) if self.has_section else 0.0

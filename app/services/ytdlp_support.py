@@ -12,6 +12,7 @@ import glob
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 from app.core.errors import MediaStudioError
@@ -131,7 +132,7 @@ def check_info(info: dict) -> None:
         raise DownloadFailure("Bu içerik DRM ile korunuyor; indirilmesi desteklenmez.")
 
 
-def to_media_info(url: str, info: dict) -> MediaInfo:
+def to_media_info(url: str, info: dict, raw: dict | None = None) -> MediaInfo:
     formats = [f for f in (info.get("formats") or [info]) if f and not f.get("has_drm")]
     heights = sorted({int(f["height"]) for f in formats
                       if f.get("height") and f.get("vcodec") not in ("none",)}, reverse=True)
@@ -149,6 +150,8 @@ def to_media_info(url: str, info: dict) -> MediaInfo:
         has_video=has_video,
         has_audio=has_audio,
         filesize_approx=int(info.get("filesize") or info.get("filesize_approx") or 0),
+        raw=raw,
+        analyzed_at=time.time() if raw is not None else 0.0,
     )
 
 
@@ -168,19 +171,78 @@ def analyze(url: str) -> MediaInfo:
     if not info:
         raise DownloadFailure("Bağlantıdan medya bilgisi alınamadı.")
     check_info(info)
-    return to_media_info(url, info)
+    # Ham bilgi saklanır: indirme başlarken bağlantı yeniden analiz edilmez (~2 sn kazanç)
+    return to_media_info(url, info, raw=info)
+
+
+# Analiz edilen bilgideki doğrudan medya bağlantılarının süresi sınırlıdır (YouTube'da ~6 sa);
+# bundan eski bilgiler yeniden çekilir.
+PREFETCH_MAX_AGE = 30 * 60
+MIN_SECTION = 1.0
+
+
+def validate_section(start: float, end: float, duration: float | None) -> None:
+    """İndirilecek zaman aralığını denetler (saniye)."""
+    if start < 0:
+        raise DownloadFailure("Başlangıç zamanı negatif olamaz.")
+    if end - start < MIN_SECTION:
+        raise DownloadFailure("Bitiş, başlangıçtan en az 1 saniye sonra olmalı.")
+    if duration and end > duration + 0.5:
+        from app.utils.timecode import format_timecode
+
+        raise DownloadFailure(f"Bitiş zamanı videonun süresini ({format_timecode(duration, millis=False)}) aşıyor.")
+
+
+HLS_PEAK_TO_AVERAGE = 0.5
+
+
+def _average_kbps(fmt: dict, all_formats: list[dict]) -> float:
+    """Formatın ortalama bit hızı.
+
+    HLS listeleri bit hızını tepe değer (BANDWIDTH) olarak bildirir; ortalamanın ~2 katı olabilir
+    (ölçüm: 1080p HLS 7418 kbps, aynı görüntünün normal akışı 3248 kbps). Bu yüzden HLS için aynı
+    çözünürlük ve kodekteki normal akışın ortalaması kullanılır; yoksa tepe değerin yarısı.
+    """
+    tbr = float(fmt.get("tbr") or 0)
+    if not str(fmt.get("protocol", "")).startswith("m3u8"):
+        return tbr
+    codec = str(fmt.get("vcodec") or "").split(".")[0]
+    for other in all_formats:
+        if (not str(other.get("protocol", "")).startswith("m3u8") and other.get("tbr")
+                and other.get("height") == fmt.get("height") and codec
+                and str(other.get("vcodec") or "").split(".")[0] == codec):
+            return float(other["tbr"])
+    return tbr * HLS_PEAK_TO_AVERAGE
+
+
+def expected_section_bytes(info: dict, start: float, end: float) -> int:
+    """Seçilen formatların ortalama bit hızından aralığın tahmini boyutu (ilerleme göstergesi için)."""
+    formats = info.get("requested_formats") or [info]
+    all_formats = info.get("formats") or []
+    kbps = sum(_average_kbps(f, all_formats) for f in formats)
+    return int(kbps * 1000 / 8 * max(end - start, 0)) if kbps else 0
 
 
 # ---------------------------------------------------------------- format ve dosya adı
-def format_selector(kind: OperationKind, quality: str = "best") -> str:
+def format_selector(kind: OperationKind, quality: str = "best", ranged: bool = False) -> str:
+    """yt-dlp format seçici.
+
+    `ranged`: zaman aralığı indirilecekse, kaynak sunuyorsa parçalı (HLS/m3u8) akışlar tercih edilir.
+    Ölçüm (10,5 dk video, 71 sn aralık, 1080p): HLS 30 sn, tek bağlantılı akış 47 sn. FFmpeg aralığı
+    HLS'te yalnızca gereken kısa parçaları ister; tek uzun bağlantı ise kaynakça yavaşlatılabiliyor.
+    """
     if kind is OperationKind.AUDIO_DOWNLOAD:
-        return "ba/b"
+        return "ba[protocol^=m3u8]/ba/b" if ranged else "ba/b"
     if quality == "best" or not str(quality).isdigit():
         # Önce MP4 uyumlu akışlar (birleştirmede yeniden kodlama gerekmez), sonra en iyi akışlar
-        return "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
-    h = int(quality)
-    return (f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/bv*[height<={h}]+ba/b[height<={h}]"
-            f"/bv*+ba/b")  # kaynakta bu sınırın altında akış yoksa mevcut en iyisi
+        normal = "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
+        hls = "bv*[protocol^=m3u8][vcodec^=avc1]+ba/b[protocol^=m3u8]/"
+    else:
+        h = int(quality)
+        normal = (f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/bv*[height<={h}]+ba/b[height<={h}]"
+                  f"/bv*+ba/b")  # kaynakta bu sınırın altında akış yoksa mevcut en iyisi
+        hls = f"bv*[protocol^=m3u8][vcodec^=avc1][height<={h}]+ba/b[protocol^=m3u8][height<={h}]/"
+    return hls + normal if ranged else normal
 
 
 def safe_stem(title: str) -> str:

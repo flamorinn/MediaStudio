@@ -13,7 +13,8 @@ from app import APP_ID, APP_NAME, APP_VERSION, ORG_NAME
 from app.core.context import AppContext
 from app.services.converter import ConversionManager
 from app.services.cutter import CutManager
-from app.services.downloader import DownloadManager
+from app.core.workers import Worker
+from app.services.downloader import DownloadManager, warm_up
 from app.ui.main_window import MainWindow
 from app.ui.theme import theme
 from app.utils.logging_setup import install_qt_message_handler, setup_logging
@@ -77,6 +78,7 @@ def create_app(argv: list[str] | None = None, ctx: AppContext | None = None):
         ctx.notifications.warning("Ayar dosyası onarıldı",
                                   "Bozuk ayar dosyası yedeklendi ve varsayılan ayarlar yüklendi.")
     ctx.refresh_dependencies()
+    ctx.thread_pool.start(Worker(warm_up))  # ilk analiz hızlı olsun: yt-dlp arka planda hazırlanır
     return app, ctx, window
 
 

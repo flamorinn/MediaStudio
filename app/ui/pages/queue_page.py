@@ -18,6 +18,7 @@ from app.ui.widgets.common import (
 )
 from app.ui.widgets.dialogs import ErrorDetailsDialog, confirm
 from app.utils.formatting import human_duration, human_size, human_speed
+from app.utils.timecode import format_timecode
 from app.utils.system import reveal_in_explorer
 
 
@@ -41,7 +42,9 @@ def describe(task: DownloadTask) -> str:
     if s is DownloadStatus.QUEUED:
         option = f"MP3 {task.audio_bitrate} kbps" if task.is_audio else \
             ("En yüksek kalite" if task.quality == "best" else f"{task.quality}p")
-        return f"Sırada bekliyor · {task.kind.label} · {option}"
+        span = (f" · aralık {format_timecode(task.section_start, millis=False)}–"
+                f"{format_timecode(task.section_end, millis=False)}") if task.has_section else ""
+        return f"Sırada bekliyor · {task.kind.label} · {option}{span}"
     if s is DownloadStatus.COMPLETED:
         return f"{human_size(task.total_bytes)} · {task.output_path}" if task.total_bytes else task.output_path
     if s is DownloadStatus.FAILED:
@@ -101,7 +104,11 @@ class QueueRow(QFrame):
 
     def update_from(self, task: DownloadTask) -> None:
         s = task.status
-        self.title.set_full_text(task.display_title)
+        title = task.display_title
+        if task.has_section:
+            title += (f"  ·  {format_timecode(task.section_start, millis=False)}–"
+                      f"{format_timecode(task.section_end, millis=False)}")
+        self.title.set_full_text(title)
         self.pill.set_state(s.tone, s.label)
         self.badge.set_icon(tone="accent" if s.is_active else s.tone if s.is_finished else "neutral")
         if task.progress is None and s.is_active:

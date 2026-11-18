@@ -10,6 +10,7 @@ FFmpeg ile üretilen sentetik test içeriklerini 127.0.0.1 üzerinden sunar:
 from __future__ import annotations
 
 import functools
+import os
 import http.server
 import shutil
 import subprocess
@@ -56,16 +57,63 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args) -> None:  # test çıktısını kirletmesin
         pass
 
+    # HTTP Range desteği: gerçek medya sunucuları (YouTube dahil) bayt aralığı isteklerini destekler;
+    # FFmpeg zaman aralığı indirirken dosyanın ortasına bu yolla atlar.
+    _range: tuple[int, int] | None = None
+
+    def send_head(self):
+        self._range = None
+        header = self.headers.get("Range", "")
+        path = self.translate_path(self.path)
+        if not header.startswith("bytes=") or not os.path.isfile(path):
+            return super().send_head()
+        size = os.path.getsize(path)
+        first, _, last = header[6:].split(",")[0].partition("-")
+        try:
+            start = int(first) if first else max(size - int(last), 0)
+            end = int(last) if first and last else size - 1
+        except ValueError:
+            return super().send_head()
+        if start >= size:
+            self.send_error(416, "Requested Range Not Satisfiable")
+            return None
+        end = min(end, size - 1)
+        source = open(path, "rb")  # noqa: SIM115 - copyfile kapatır
+        source.seek(start)
+        self._range = (start, end)
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.end_headers()
+        return source
+
+    def end_headers(self) -> None:
+        if self._range is None:
+            self.send_header("Accept-Ranges", "bytes")
+        super().end_headers()
+
     def copyfile(self, source, outputfile) -> None:
-        if not self.path.startswith("/slow/"):
-            return super().copyfile(source, outputfile)
-        while chunk := source.read(self.slow_chunk):
+        remaining = (self._range[1] - self._range[0] + 1) if self._range else None
+        slow = self.path.startswith("/slow/")
+        chunk_size = self.slow_chunk if slow else 256 * 1024
+        while True:
+            want = chunk_size if remaining is None else min(chunk_size, remaining)
+            if want <= 0:
+                return
+            chunk = source.read(want)
+            if not chunk:
+                return
             try:
                 outputfile.write(chunk)
                 outputfile.flush()
             except (ConnectionError, OSError):
                 return
-            time.sleep(self.slow_delay)
+            if remaining is not None:
+                remaining -= len(chunk)
+            if slow:
+                time.sleep(self.slow_delay)
 
 
 class MediaServer:

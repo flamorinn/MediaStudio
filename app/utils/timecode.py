@@ -30,6 +30,26 @@ def parse_timecode(text: str) -> float:
     return hours * 3600 + minutes * 60 + seconds
 
 
+def parse_flexible_timecode(text: str) -> float:
+    """Kullanıcı dostu ayrıştırıcı: '5.37' veya '5,37' → 5 dk 37 sn; '1.05.37' → 1 sa 5 dk 37 sn.
+
+    Türkçede dakika ve saniye çoğu zaman nokta ile yazılır. Bu yüzden iki nokta (:) içermeyen,
+    ayırıcıdan sonra tam iki hanesi olan değerler dakika.saniye olarak yorumlanır. Diğer her biçim
+    `parse_timecode` kurallarıyla çözülür ('5:37', '00:05:37.250', '337').
+    """
+    raw = (text or "").strip()
+    if ":" not in raw:
+        if raw.count(".") >= 2 and re.fullmatch(r"\d+(?:\.\d{1,2}){2}", raw):
+            raw = raw.replace(".", ":")
+        else:
+            match = re.fullmatch(r"(\d+)[.,](\d{2})", raw)
+            if match:
+                if int(match.group(2)) >= 60:
+                    raise ValueError("Saniye 60'tan küçük olmalı. Örnek: 5.37 (5 dk 37 sn)")
+                raw = f"{match.group(1)}:{match.group(2)}"
+    return parse_timecode(raw)
+
+
 def format_timecode(seconds: float, millis: bool = True) -> str:
     """Saniye → '00:01:23.500' (millis=False ise '00:01:23')."""
     total_ms = int(round(max(seconds, 0) * 1000))

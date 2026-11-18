@@ -66,6 +66,13 @@ QFrame#HeroCard {{
 QFrame#DropZone {{ background: {rgba(c['primary'], 0.04)}; border: 2px dashed {c['border_strong']};
                   border-radius: {r['xl']}px; }}
 QFrame#DropZone[active="true"] {{ background: {rgba(c['primary'], 0.12)}; border-color: {c['primary']}; }}
+QFrame#Segmented {{ background: {c['surface_2']}; border: 1px solid {c['border_strong']};
+                   border-radius: {r['md']}px; }}
+QPushButton#Segment {{ background: transparent; border: none; border-radius: 7px; padding: 6px 16px;
+                      color: {c['text_2']}; font-weight: 500; }}
+QPushButton#Segment:hover {{ color: {c['text']}; background: {c['surface_hover']}; }}
+QPushButton#Segment:checked {{ background: {grad}; color: white; font-weight: 600; }}
+QPushButton#Segment:disabled {{ color: {c['text_3']}; }}
 QFrame#NoticeCard {{ background: {rgba(c['info'], 0.07)}; border: 1px solid {rgba(c['info'], 0.25)};
                     border-radius: {r['lg']}px; }}
 QFrame#ActionCard {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: {r['lg']}px; }}

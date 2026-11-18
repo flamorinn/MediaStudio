@@ -18,6 +18,9 @@ class MediaInfo:
     has_video: bool = True
     has_audio: bool = True
     filesize_approx: int = 0
+    # Ham yt-dlp bilgisi (indirmede yeniden analiz yapmamak için); karşılaştırmaya katılmaz
+    raw: dict | None = field(default=None, repr=False, compare=False)
+    analyzed_at: float = field(default=0.0, compare=False)
 
     @property
     def best_height(self) -> int | None:
